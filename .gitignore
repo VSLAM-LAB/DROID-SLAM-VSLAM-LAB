@@ -155,4 +155,6 @@ cache
 data
 figures/*.pdf
 
-
+# VSLAM-LAB
+install_droidslam-dev.txt
+archive/
