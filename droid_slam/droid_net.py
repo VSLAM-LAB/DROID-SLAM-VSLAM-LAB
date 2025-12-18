@@ -4,16 +4,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 from collections import OrderedDict
 
-from modules.extractor import BasicEncoder
-from modules.corr import CorrBlock
-from modules.gru import ConvGRU
-from modules.clipping import GradientClip
+from droid_slam.modules.extractor import BasicEncoder
+from droid_slam.modules.corr import CorrBlock
+from droid_slam.modules.gru import ConvGRU
+from droid_slam.modules.clipping import GradientClip
 
 from lietorch import SE3
-from geom.ba import BA
+from droid_slam.geom.ba import BA
 
-import geom.projective_ops as pops
-from geom.graph_utils import graph_to_edge_list, keyframe_indicies
+import droid_slam.geom.projective_ops as pops
+from droid_slam.geom.graph_utils import graph_to_edge_list, keyframe_indicies
 
 from torch_scatter import scatter_mean
 

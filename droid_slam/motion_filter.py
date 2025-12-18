@@ -3,10 +3,10 @@ import torch
 import lietorch
 
 from collections import OrderedDict
-from droid_net import DroidNet
 
-import geom.projective_ops as pops
-from modules.corr import CorrBlock
+from droid_slam.droid_net import DroidNet
+import droid_slam.geom.projective_ops as pops
+from droid_slam.modules.corr import CorrBlock
 
 from functools import partial
 

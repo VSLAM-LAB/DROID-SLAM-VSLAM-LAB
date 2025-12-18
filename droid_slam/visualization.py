@@ -8,7 +8,8 @@ import numpy as np
 import open3d as o3d
 
 from lietorch import SE3
-import geom.projective_ops as pops
+
+import droid_slam.geom.projective_ops as pops
 
 CAM_POINTS = np.array([
         [ 0,   0,   0],

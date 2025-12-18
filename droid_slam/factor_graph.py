@@ -4,8 +4,9 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 from lietorch import SE3
-from modules.corr import CorrBlock, AltCorrBlock
-import geom.projective_ops as pops
+
+from droid_slam.modules.corr import CorrBlock, AltCorrBlock
+import droid_slam.geom.projective_ops as pops
 
 from cuda_timer import CudaTimer
 from functools import partial

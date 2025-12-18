@@ -6,8 +6,8 @@ import droid_backends
 from torch.multiprocessing import Process, Queue, Lock, Value
 from collections import OrderedDict
 
-from droid_net import cvx_upsample
-import geom.projective_ops as pops
+from droid_slam.droid_net import cvx_upsample
+import droid_slam.geom.projective_ops as pops
 
 class DepthVideo:
     def __init__(self, image_size=[480, 640], buffer=1024, stereo=False, device="cuda:0"):

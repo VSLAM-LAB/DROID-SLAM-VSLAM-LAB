@@ -4,9 +4,10 @@ import lietorch
 
 from lietorch import SE3
 from collections import OrderedDict
-from factor_graph import FactorGraph
-from droid_net import DroidNet
-import geom.projective_ops as pops
+
+from droid_slam.factor_graph import FactorGraph
+from droid_slam.droid_net import DroidNet
+import droid_slam.geom.projective_ops as pops
 
 from functools import partial
 
