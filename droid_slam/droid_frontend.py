@@ -3,9 +3,9 @@ import lietorch
 import numpy as np
 
 from lietorch import SE3
-from droid_slam.factor_graph import FactorGraph
 
-from cuda_timer import CudaTimer
+from droid_slam.factor_graph import FactorGraph
+from droid_slam.cuda_timer import CudaTimer
 
 
 ENABLE_TIMING = False

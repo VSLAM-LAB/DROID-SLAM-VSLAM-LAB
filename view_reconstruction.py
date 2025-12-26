@@ -8,10 +8,11 @@ import droid_backends
 import argparse
 import open3d as o3d
 
-from visualization import create_camera_actor
 from lietorch import SE3
 
-from cuda_timer import CudaTimer
+from droid_slam.visualization import create_camera_actor
+from droid_slam.cuda_timer import CudaTimer
+
 
 def view_reconstruction(filename: str, filter_thresh = 0.005, filter_count=2):
     reconstruction_blob = torch.load(filename)

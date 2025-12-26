@@ -7,8 +7,8 @@ from lietorch import SE3
 
 from droid_slam.modules.corr import CorrBlock, AltCorrBlock
 import droid_slam.geom.projective_ops as pops
+from droid_slam.cuda_timer import CudaTimer
 
-from cuda_timer import CudaTimer
 from functools import partial
 
 if torch.__version__.startswith("2"):
