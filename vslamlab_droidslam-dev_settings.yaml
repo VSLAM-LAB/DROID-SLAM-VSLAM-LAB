@@ -18,6 +18,6 @@ settings:
   backend_radius: 2
   backend_nms: 3
 
-  cam_mono: rgb0
-  cam_rgbd: rgb0
-  cam_stereo: [rgb0, rgb1]
+  cam_mono: rgb_0
+  cam_rgbd: rgb_0
+  cam_stereo: [rgb_0, rgb_1]

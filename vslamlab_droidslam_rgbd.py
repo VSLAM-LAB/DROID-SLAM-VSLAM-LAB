@@ -56,7 +56,7 @@ def load_calibration(calibration_yaml: Path, cam_name: str):
     return K, dist, cam['depth_name'], cam['depth_factor'], cam['image_dimension'][0], cam['image_dimension'][1]
 
 def image_stream(sequence_path: Path, rgb_csv: Path, calibration_yaml: Path, 
-                 cam_name: str = "rgb0", target_pixels: int = 384*512):
+                 cam_name: str = "rgb_0", target_pixels: int = 384*512, terminate_: bool = False):
     """ image generator """ 
     global timestamps 
     K, dist, depth_name, depth_factor, w0 ,h0 = load_calibration(calibration_yaml, cam_name)
@@ -64,7 +64,7 @@ def image_stream(sequence_path: Path, rgb_csv: Path, calibration_yaml: Path,
     # Load rgb images 
     df = pd.read_csv(rgb_csv)
     image_list = df[f'path_{cam_name}'].to_list()
-    timestamps = df[f'ts_{cam_name} (s)'].to_list() 
+    timestamps = (df[f'ts_{cam_name} (ns)'] / 1e9).to_list()
     depth_list = df[f'path_{depth_name}'].to_list() 
     
     # Undistort and resize images
@@ -92,7 +92,10 @@ def image_stream(sequence_path: Path, rgb_csv: Path, calibration_yaml: Path,
         depth = torch.as_tensor(depth)
         depth = depth[:h-h%8, :w-w%8] 
 
-        yield t, image[None], depth, intrinsics.clone() 
+        if terminate_:
+            yield t, image[None], intrinsics.clone() 
+        else:
+            yield t, image[None], depth, intrinsics.clone() 
 
 def main(): 
     print("\nRunning vslamlab_droidslam_rgbd.py ...\n")  
@@ -143,7 +146,7 @@ def main():
 
     args.stereo = False 
     args.depth = True
-    cam_name = str(S.get('cam_rgbd', "rgb0"))
+    cam_name = str(S.get('cam_rgbd', "rgb_0"))
 
     torch.multiprocessing.set_start_method('spawn') 
     
@@ -164,14 +167,14 @@ def main():
         droid.track(t, image, depth, intrinsics=intrinsics)
     
     traj_est = droid.terminate(image_stream(args.sequence_path, args.rgb_csv, args.calibration_yaml, 
-                                            cam_name = cam_name)) 
+                                            cam_name = cam_name, terminate_ = True)) 
 
     keyframe_csv = args.exp_folder / f"{args.exp_it.zfill(5)}_KeyFrameTrajectory.csv"
     with open(keyframe_csv, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["timestamp", "tx", "ty", "tz", "qx", "qy", "qz", "qw"])
+        writer.writerow(["ts (ns)", "tx (m)", "ty (m)", "tz (m)", "qx", "qy", "qz", "qw"])
         for i in range(len(timestamps)):
-            ts = timestamps[i]
+            ts = int(timestamps[i] * 1e9)
             tx, ty, tz, qx, qy, qz, qw = traj_est[i][:7]
             writer.writerow([ts, tx, ty, tz, qx, qy, qz, qw])
     

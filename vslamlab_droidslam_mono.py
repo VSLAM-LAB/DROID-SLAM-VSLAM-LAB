@@ -54,7 +54,7 @@ def load_calibration(calibration_yaml: Path, cam_name: str):
     return K, dist, cam['image_dimension'][0], cam['image_dimension'][1]
 
 def image_stream(sequence_path: Path, rgb_csv: Path, calibration_yaml: Path, 
-                 cam_name: str = "rgb0", target_pixels: int = 384*512):
+                 cam_name: str = "rgb_0", target_pixels: int = 384*512):
     """ image generator """
     global timestamps
     K, dist, w0, h0 = load_calibration(calibration_yaml, cam_name)
@@ -63,7 +63,7 @@ def image_stream(sequence_path: Path, rgb_csv: Path, calibration_yaml: Path,
     df = pd.read_csv(rgb_csv)       
     
     image_list = df[f'path_{cam_name}'].to_list()
-    timestamps = df[f'ts_{cam_name} (s)'].to_list()
+    timestamps = (df[f'ts_{cam_name} (ns)'] / 1e9).to_list()
 
     # Undistort and resize images
     h = (int(h0 * np.sqrt(target_pixels / (h0 * w0))) // 32) * 32
@@ -132,7 +132,7 @@ def main():
 
     args.stereo = False
     args.depth = False
-    cam_name = str(S.get('cam_mono', "rgb0"))
+    cam_name = str(S.get('cam_mono', "rgb_0"))
 
     torch.multiprocessing.set_start_method('spawn')
 
@@ -156,9 +156,9 @@ def main():
     keyframe_csv = args.exp_folder / f"{args.exp_it.zfill(5)}_KeyFrameTrajectory.csv"
     with open(keyframe_csv, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["timestamp", "tx", "ty", "tz", "qx", "qy", "qz", "qw"])
+        writer.writerow(["ts (ns)", "tx (m)", "ty (m)", "tz (m)", "qx", "qy", "qz", "qw"])
         for i in range(len(timestamps)):
-            ts = timestamps[i]
+            ts = int(timestamps[i] * 1e9)
             tx, ty, tz, qx, qy, qz, qw = traj_est[i][:7]
             writer.writerow([ts, tx, ty, tz, qx, qy, qz, qw])
 

@@ -33,7 +33,7 @@ def load_calibration(calibration_yaml: Path, cam_l_name: str, cam_r_name: str, t
             cam_r = cam_
     
     K, D, T_SC, R_SC, t_SC = {}, {} ,{}, {}, {}
-    for cam, side in zip([cam_l, cam_],['l', 'r']):
+    for cam, side in zip([cam_l, cam_r],['l', 'r']):
         print(f"\nCamera Name: {cam['cam_name']}")
         print(f"Camera Type: {cam['cam_type']}")
         print(f"Camera Model: {cam['cam_model']}")
@@ -76,7 +76,7 @@ def load_calibration(calibration_yaml: Path, cam_l_name: str, cam_r_name: str, t
     return P_l[0:3,0:3], map_l, map_r
 
 def image_stream(sequence_path: Path, rgb_csv: Path, calibration_yaml: Path, 
-                 cam_l_name = "rgb0" , cam_r_name = "rgb1", target_pixels: int = 384*512):
+                 cam_l_name = "rgb_0" , cam_r_name = "rgb_1", target_pixels: int = 384*512):
     """ image generator """ 
     global timestamps 
     K, map_l, map_r= load_calibration(calibration_yaml = calibration_yaml, 
@@ -86,11 +86,11 @@ def image_stream(sequence_path: Path, rgb_csv: Path, calibration_yaml: Path,
     df = pd.read_csv(rgb_csv)       
     images_left = df[f'path_{cam_l_name}'].to_list()
     images_right = df[f'path_{cam_r_name}'].to_list()
-    timestamps = df[f'ts_{cam_l_name} (s)'].to_list()
+    timestamps = (df[f'ts_{cam_l_name} (ns)'] / 1e9).to_list()
 
     intrinsics_vec = [K[0,0], K[1,1], K[0,2], K[1,2]]
     intrinsics = torch.as_tensor(intrinsics_vec).cuda()
-    print(K)
+    
     for t, (imgL, imgR) in enumerate(zip(images_left, images_right)):
         imgL = os.path.join(sequence_path, imgL)
         imgR = os.path.join(sequence_path, imgR)
@@ -152,7 +152,7 @@ def main():
 
     args.stereo = True
     args.depth = False
-    cam_names = S.get('cam_stereo',  ["rgb0", "rgb1"])
+    cam_names = S.get('cam_stereo',  ["rgb_0", "rgb_1"])
     
     torch.multiprocessing.set_start_method('spawn')
 
@@ -178,9 +178,9 @@ def main():
     keyframe_csv = args.exp_folder / f"{args.exp_it.zfill(5)}_KeyFrameTrajectory.csv"
     with open(keyframe_csv, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["timestamp", "tx", "ty", "tz", "qx", "qy", "qz", "qw"])
+        writer.writerow(["ts (ns)", "tx (m)", "ty (m)", "tz (m)", "qx", "qy", "qz", "qw"])
         for i in range(len(timestamps)):
-            ts = timestamps[i]
+            ts = int(timestamps[i] * 1e9)
             tx, ty, tz, qx, qy, qz, qw = traj_est[i][:7]
             writer.writerow([ts, tx, ty, tz, qx, qy, qz, qw])
 
