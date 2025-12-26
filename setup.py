@@ -31,8 +31,11 @@ setup(
     ext_modules=[
         CUDAExtension(
             name='droid_backends',
-            include_dirs=torch_include_dirs + [osp.join(os.environ.get('CONDA_PREFIX', ''), 'include/eigen3')],
-            #include_dirs=torch_include_dirs + [osp.join(os.environ.get('PREFIX', ''), 'include/eigen3')],
+            include_dirs=[
+                torch_include_dirs,
+                osp.join(os.environ["CONDA_PREFIX"], 'include/eigen3'),
+                #osp.join(os.environ["PREFIX"], 'include/eigen3')
+                ],
             library_dirs=torch_library_dirs,
             sources=[
                 'src/droid.cpp',
