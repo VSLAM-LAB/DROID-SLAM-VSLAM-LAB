@@ -10,7 +10,7 @@ from moderngl_window.opengl.vao import VAO
 
 import numpy as np
 from .camera import OrbitDragCameraWindow
-from align import align_pose_fragements
+from droid_slam.align import align_pose_fragements
 
 CAM_POINTS = 0.05 * np.array(
     [
