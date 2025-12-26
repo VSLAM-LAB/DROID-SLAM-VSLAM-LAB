@@ -33,8 +33,8 @@ setup(
             name='droid_backends',
             include_dirs=[
                 torch_include_dirs,
-                osp.join(os.environ["CONDA_PREFIX"], 'include/eigen3'),
-                #osp.join(os.environ["PREFIX"], 'include/eigen3')
+                osp.join(os.environ.get("CONDA_PREFIX", ""), 'include/eigen3'),
+                osp.join(os.environ.get("PREFIX", os.environ.get("CONDA_PREFIX", "")), 'include/eigen3')
                 ],
             library_dirs=torch_library_dirs,
             sources=[
