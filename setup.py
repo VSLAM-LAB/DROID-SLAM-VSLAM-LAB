@@ -7,7 +7,9 @@ import os
 ROOT = osp.dirname(osp.abspath(__file__))
 torch_include_dirs = include_paths()
 torch_library_dirs = library_paths()
-
+conda_prefix = os.environ.get("PREFIX", os.environ.get("CONDA_PREFIX", ""))
+eigen_path = osp.join(conda_prefix, 'include', 'eigen3')
+                      
 setup(
     name='vslamlab_droidslam',
     version='0.1',
@@ -31,11 +33,10 @@ setup(
     ext_modules=[
         CUDAExtension(
             name='droid_backends',
-            include_dirs=[
-                torch_include_dirs,
-                osp.join(os.environ.get("CONDA_PREFIX", ""), 'include/eigen3'),
-                osp.join(os.environ.get("PREFIX", os.environ.get("CONDA_PREFIX", "")), 'include/eigen3')
-                ],
+            include_dirs=torch_include_dirs + [
+                eigen_path,
+                osp.join(ROOT, 'src')
+            ],
             library_dirs=torch_library_dirs,
             sources=[
                 'src/droid.cpp',
