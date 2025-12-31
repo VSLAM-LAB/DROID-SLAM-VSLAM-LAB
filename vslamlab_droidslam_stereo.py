@@ -32,7 +32,7 @@ def load_calibration(calibration_yaml: Path, cam_l_name: str, cam_r_name: str, t
         if cam_['cam_name'] == cam_r_name:
             cam_r = cam_
     
-    K, D, T_SC, R_SC, t_SC = {}, {} ,{}, {}, {}
+    K, D, T_BS, R_BS, t_BS = {}, {} ,{}, {}, {}
     for cam, side in zip([cam_l, cam_r],['l', 'r']):
         print(f"\nCamera Name: {cam['cam_name']}")
         print(f"Camera Type: {cam['cam_type']}")
@@ -55,11 +55,11 @@ def load_calibration(calibration_yaml: Path, cam_l_name: str, cam_r_name: str, t
         else:
             D[side] = 0.0
 
-        T_SC[side] = np.array(cam['T_SC']).reshape(4, 4)  
-        R_SC[side], t_SC[side] = T_SC[side][:3, :3], T_SC[side][:3, 3]
+        T_BS[side] = np.array(cam['T_BS']).reshape(4, 4)  
+        R_BS[side], t_BS[side] = T_BS[side][:3, :3], T_BS[side][:3, 3]
 
-    R_01_B = R_SC['r'].T @ R_SC['l']
-    t_01_B = R_SC['r'].T @ (t_SC['l'] - t_SC['r'])
+    R_01_B = R_BS['r'].T @ R_BS['l']
+    t_01_B = R_BS['r'].T @ (t_BS['l'] - t_BS['r'])
 
     w0 = cam_l['image_dimension'][0]
     h0 = cam_l['image_dimension'][1]
