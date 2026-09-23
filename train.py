@@ -1,6 +1,7 @@
 import sys
 sys.path.append('droid_slam')
 
+import re
 import socket
 import time
 from datetime import timedelta
@@ -389,6 +390,16 @@ if __name__ == '__main__':
     import os
     if not os.path.isdir('checkpoints'):
         os.mkdir('checkpoints')
+
+    # refuse to clobber a previous run: checkpoints are named <name>_<step>.pth and
+    # the step counter starts at 0, so reusing a name silently overwrites its files
+    ckpt_re = re.compile(re.escape(args.name) + r'_(\d+)\.pth')
+    existing = sorted(f for f in os.listdir('checkpoints') if ckpt_re.fullmatch(f))
+    if existing or os.path.isdir(os.path.join('runs', args.name)):
+        logger.error(f"--name '{args.name}' is already used (checkpoints: {existing or 'none'}, "
+                     f"runs/{args.name} exists: {os.path.isdir(os.path.join('runs', args.name))}); "
+                     f"pick a new --name so nothing gets overwritten.")
+        raise SystemExit(1)
 
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12356'
