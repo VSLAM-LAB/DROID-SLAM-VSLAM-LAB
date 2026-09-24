@@ -130,13 +130,17 @@ def train(gpu, args):
 
     train_loader = DataLoader(db, batch_size=args.batch, sampler=train_sampler, num_workers=2)
 
-    # batches of each loader already consumed before start_step: in semi mode every
-    # labeled step is followed by one gt-free step, so each got half of them
-    if semi and args.start_step % 2 != 0:
+    # semi mode alternates a labeled and a gt-free optimizer step; --joint instead
+    # takes one step on the sum of both losses
+    alternating = semi and not args.joint
+
+    # batches of each loader already consumed before start_step: when alternating,
+    # every labeled step is followed by one gt-free step, so each got half of them
+    if alternating and args.start_step % 2 != 0:
         logger.error(f"--start_step={args.start_step} must be even in semi-supervised mode "
                      f"(labeled and gt-free steps alternate; checkpoints land on even steps)")
         raise SystemExit(1)
-    batches_done = args.start_step // 2 if semi else args.start_step
+    batches_done = args.start_step // 2 if alternating else args.start_step
 
     if semi:
         sampler_u = ResumableDistributedSampler(
@@ -155,11 +159,11 @@ def train(gpu, args):
 
     if args.epochs is not None:
         labeled_steps = int(len(db) * args.epochs / (args.world_size * args.batch))
-        # in semi mode each labeled batch is followed by one gt-free optimizer step
-        args.steps = 2 * labeled_steps if semi else labeled_steps
+        # when alternating, each labeled batch is followed by one gt-free optimizer step
+        args.steps = 2 * labeled_steps if alternating else labeled_steps
         logger.info(f"[rank {gpu}] --epochs={args.epochs} => steps={args.steps} "
                     f"(M={len(db)} anchors, world_size={args.world_size}, batch={args.batch}, "
-                    f"semi={semi})")
+                    f"semi={semi}, joint={args.joint})")
 
     # fetch optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
@@ -329,16 +333,20 @@ def train(gpu, args):
             if args.w4 > 0 and not semi:
                 metrics.update(con_metrics)
 
-            finish_step(metrics, step_start_time)
-            if not should_keep_training:
-                break
+            # --joint: keep the labeled gradients and add the gt-free ones below, so a
+            # single (clipped) optimizer step is taken on the summed loss
+            if not args.joint:
+                finish_step(metrics, step_start_time)
+                if not should_keep_training:
+                    break
 
             if semi:
                 # gt-free consistency step: teacher forward on clean images (no
                 # grad), student forward on noise-perturbed images; the loss pulls
                 # the student's relative poses toward the teacher's
-                step_start_time = time.time()
-                optimizer.zero_grad()
+                if not args.joint:
+                    step_start_time = time.time()
+                    optimizer.zero_grad()
 
                 images, poses, disps, intrinsics, has_gt = [x.to('cuda') for x in next(unlabeled_iter)]
 
@@ -374,8 +382,8 @@ def train(gpu, args):
                 loss = args.w4 * ramp * con_loss + 0.0 * disps_stu[-1].mean()
                 loss.backward()
 
-                metrics = {'gt_free/' + k: v for k, v in con_metrics.items()}
-                metrics['gt_free/con_loss'] = con_loss.item()
+                metrics_u = {'gt_free/' + k: v for k, v in con_metrics.items()}
+                metrics_u['gt_free/con_loss'] = con_loss.item()
 
                 # oracle accuracy on the gt-free window (same relative-pose metric as
                 # the labeled step's rot_error/tr_error, final iteration, no scale
@@ -385,9 +393,10 @@ def train(gpu, args):
                     with torch.no_grad():
                         _, val_tea = losses.geodesic_loss(Ps, [poses_tea[-1]], graph, do_scale=False)
                         _, val_stu = losses.geodesic_loss(Ps, [poses_stu[-1]], graph, do_scale=False)
-                    metrics.update({'gt_free/val_tea_' + k: v for k, v in val_tea.items()})
-                    metrics.update({'gt_free/val_stu_' + k: v for k, v in val_stu.items()})
+                    metrics_u.update({'gt_free/val_tea_' + k: v for k, v in val_tea.items()})
+                    metrics_u.update({'gt_free/val_stu_' + k: v for k, v in val_stu.items()})
 
+                metrics = {**metrics, **metrics_u} if args.joint else metrics_u
                 finish_step(metrics, step_start_time)
                 if not should_keep_training:
                     break
@@ -452,6 +461,11 @@ if __name__ == '__main__':
                               'labeled batch is followed by one consistency-only step on a '
                               'batch from this gt-free scene-list yaml (relative to '
                               '--datapath); requires --w4 > 0 to have any effect')
+    parser.add_argument('--joint', action='store_true',
+                         help='semi-supervised mode only: instead of alternating a labeled and '
+                              'a gt-free optimizer step, backpropagate both losses and take one '
+                              'step on their sum (clipped as a whole); --epochs then yields half '
+                              'as many optimizer steps for the same data')
     parser.add_argument('--con_ramp', type=int, default=2000,
                          help='linearly ramp the consistency weight w4 from 0 to full over '
                               'this many optimizer steps (0 disables the ramp)')
@@ -494,7 +508,11 @@ if __name__ == '__main__':
         logger.info(f"--resume: continuing '{args.name}' from step {args.start_step}")
         del state
 
-    if args.scenes_gt_free is not None and args.save_freq % 2 != 0:
+    if args.joint and args.scenes_gt_free is None:
+        logger.error("--joint needs --scenes_gt_free: it sums the labeled and gt-free losses")
+        raise SystemExit(1)
+
+    if args.scenes_gt_free is not None and not args.joint and args.save_freq % 2 != 0:
         logger.error(f"--save_freq={args.save_freq} must be even in semi-supervised mode, "
                      f"or its checkpoints land mid labeled/gt-free pair and can't be continued")
         raise SystemExit(1)
