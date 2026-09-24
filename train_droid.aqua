@@ -1,0 +1,40 @@
+#!/bin/bash -l
+#PBS -N train_droid
+#PBS -l select=1:ncpus=12:ngpus=4:mem=64gb
+#PBS -l walltime=48:00:00
+#PBS -m abe
+#PBS -M alejandro.fontan@qut.edu.au
+#PBS -j oe
+
+cd ~/VSLAM-LAB
+#pixi run synch-gt eth
+#pixi run synch-gt replica
+#pixi run synch-gt tartanair-train
+
+cd Baselines/DROID-SLAM-DEV
+export TQDM_DISABLE=1
+
+#pixi run -e droidslam-dev python train.py --name eth_lr2e-5_ep8 --epochs 8 --lr 0.00002 --datasets vslamlab --datapath ../../../VSLAM-LAB-Benchmark --scenes_gt eth.yaml --ckpt droid.pth
+#pixi run -e droidslam-dev python train.py --name eth_overfit_noaug --epochs 8 --lr 0.00002 --wd 0 --no_aug_photo --no_aug_crop --datasets vslamlab --datapath ../../../VSLAM-LAB-Benchmark --scenes_gt eth.yaml --ckpt droid.pth
+#pixi run -e droidslam-dev python train.py --name replica-eth_semi_w4-05 --epochs 2 --lr 0.00002 --wd 0 --w4 0.5 --con_ramp 2000 --scenes_gt replica.yaml --scenes_gt_free eth.yaml --datapath ../../../VSLAM-LAB-Benchmark --ckpt droid.pth
+#pixi run -e droidslam-dev python train.py --name replica_lr2e-5_ep8 --epochs 8 --lr 0.00002 --datasets vslamlab --datapath ../../../VSLAM-LAB-Benchmark --scenes_gt replica.yaml --ckpt droid.pth
+#pixi run -e droidslam-dev python train.py --name replica_overfit_noaug --epochs 8 --lr 0.00002 --wd 0 --no_aug_photo --no_aug_crop --datasets vslamlab --datapath ../../../VSLAM-LAB-Benchmark --scenes_gt replica.yaml --ckpt droid.pth
+
+# 24/09/2026: fresh start the first time, then --resume from the latest .state after
+# each 48 h kill (same script for every job in the chain)
+NAME=tartanair-eth_semi_w4-05
+last=$(ls checkpoints/${NAME}_*.state 2>/dev/null | sort | tail -1)
+echo "[$(date)] start (resume from: ${last:-none})"
+
+if [ -n "$last" ]; then
+    pixi run -e droidslam-dev python train.py --resume "${last%.state}.pth"
+else
+    pixi run -e droidslam-dev python train.py --name $NAME --epochs 2 --lr 0.00002 --wd 0 --w4 0.5 --con_ramp 2000 \
+        --save_freq 2000 --scenes_gt tartanair-train.yaml --scenes_gt_free eth.yaml \
+        --datapath ../../../VSLAM-LAB-Benchmark --ckpt droid.pth
+fi
+echo "[$(date)] end"
+
+#j1=$(qsub -q qcr-users train_droid.aqua)
+#j2=$(qsub -q qcr-users -W depend=afterany:$j1 train_droid.aqua)
+#j3=$(qsub -q qcr-users -W depend=afterany:$j2 train_droid.aqua)
