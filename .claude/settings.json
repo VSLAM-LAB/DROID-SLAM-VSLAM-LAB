@@ -2,17 +2,29 @@
   "permissions": {
     "allow": [
       "Bash",
-      "Read(/**)",
+      "Read",
       "Edit(/**)",
-      "Read(//tmp/claude-1001/**)",
       "Edit(//tmp/claude-1001/**)"
     ],
     "ask": [],
     "deny": [
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Read(~/.ssh/**)",
+      "Read(~/.gnupg/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.kube/**)",
+      "Read(~/.docker/config.json)",
+      "Read(~/.config/gh/**)",
+      "Read(~/.git-credentials)",
+      "Read(~/.netrc)",
+      "Read(**/.env)",
+      "Read(**/.env.*)"
     ],
     "additionalDirectories": [
-      "/tmp/claude-1001"
+      "/tmp/claude-1001",
+      "/home/alejandro/VSLAM-LAB",
+      "/home/alejandro/VSLAM-LAB-Benchmark",
+      "/home/alejandro/VSLAM-LAB-Evaluation"
     ]
   }
 }
