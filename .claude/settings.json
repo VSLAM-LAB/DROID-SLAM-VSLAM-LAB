@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Read(/**)",
+      "Edit(/**)",
+      "Read(//tmp/claude-1001/**)",
+      "Edit(//tmp/claude-1001/**)"
+    ],
+    "ask": [],
+    "deny": [
+      "Bash(git push *)"
+    ],
+    "additionalDirectories": [
+      "/tmp/claude-1001"
+    ]
+  }
+}
