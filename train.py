@@ -1,6 +1,7 @@
 import sys
 sys.path.append('droid_slam')
 
+import os
 import re
 import socket
 import time
@@ -57,6 +58,20 @@ class ResumableDistributedSampler(torch.utils.data.distributed.DistributedSample
         indices = list(super(ResumableDistributedSampler, self).__iter__())
         skip, self.skip = self.skip, 0
         return iter(indices[skip:])
+
+
+def state_path(ckpt_path):
+    """ training-state file saved next to a checkpoint: <name>_<step>.pth -> .state
+    (not .pth, so nothing that globs for weight files picks it up) """
+    return os.path.splitext(ckpt_path)[0] + '.state'
+
+
+def save_atomic(obj, path):
+    """ write to a temp file then rename, so a job killed mid-save never leaves a
+    truncated checkpoint behind """
+    tmp_path = path + '.tmp'
+    torch.save(obj, tmp_path)
+    os.replace(tmp_path, path)
 
 
 def show_image(image):
@@ -156,6 +171,24 @@ def train(gpu, args):
             logger.error(f"--start_step={args.start_step} is not below the run's total "
                          f"steps={args.steps}; nothing left to train")
             raise SystemExit(1)
+
+    if args.resume is not None:
+        # exact continuation: restore what the weights file doesn't hold
+        resume_state = torch.load(state_path(args.resume), map_location=f'cuda:{gpu}',
+                                  weights_only=False)
+        if resume_state['scheduler']['total_steps'] != args.steps:
+            logger.error(f"--resume: this run resolves to steps={args.steps} but the saved "
+                         f"schedule has {resume_state['scheduler']['total_steps']} (scene "
+                         f"lists or dataset changed since the original run?)")
+            raise SystemExit(1)
+        optimizer.load_state_dict(resume_state['optimizer'])
+        scheduler.load_state_dict(resume_state['scheduler'])
+        rng.bit_generator.state = resume_state['np_rng']
+        logger.info(f"[rank {gpu}] --resume: optimizer, lr schedule (lr="
+                    f"{scheduler.get_last_lr()[0]:.7f}) and rng restored at step "
+                    f"{args.start_step}; data order skipped {batches_done} batches per loader")
+
+    elif args.start_step > 0:
         # fast-forward the lr schedule to where the original run stopped (no new warmup)
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')  # "scheduler.step() before optimizer.step()"
@@ -170,6 +203,11 @@ def train(gpu, args):
     total_steps = args.start_step
     epoch, skip = divmod(batches_done, len(train_loader))
     train_sampler.skip = skip * args.batch
+
+    # restored last: model init and dataset construction above also draw from torch's rng
+    if args.resume is not None:
+        torch.set_rng_state(resume_state['torch_rng'].cpu())
+        torch.cuda.set_rng_state(resume_state['cuda_rng'].cpu())
 
     train_start_time = time.time()
     avg_step_time = 0.0
@@ -209,9 +247,18 @@ def train(gpu, args):
                             f"eta={timedelta(seconds=int(eta))} "
                             f"steps_left={steps_left}")
 
-        if total_steps % 10000 == 0 and gpu == 0:
+        if total_steps % args.save_freq == 0 and gpu == 0:
             PATH = 'checkpoints/%s_%06d.pth' % (args.name, total_steps)
-            torch.save(model.state_dict(), PATH)
+            save_atomic(model.state_dict(), PATH)
+            # everything else --resume needs; rank 0's rngs are valid for every rank
+            # (same seeds, same draws), which keeps the coin flips rank-synchronized
+            save_atomic({'total_steps': total_steps,
+                         'optimizer': optimizer.state_dict(),
+                         'scheduler': scheduler.state_dict(),
+                         'np_rng': rng.bit_generator.state,
+                         'torch_rng': torch.get_rng_state(),
+                         'cuda_rng': torch.cuda.get_rng_state(),
+                         'args': vars(args)}, state_path(PATH))
 
         if total_steps >= args.steps:
             should_keep_training = False
@@ -347,7 +394,7 @@ def train(gpu, args):
 
     if gpu == 0:
         PATH = 'checkpoints/%s_%06d.pth' % (args.name, total_steps)
-        torch.save(model.state_dict(), PATH)
+        save_atomic(model.state_dict(), PATH)
         logger.info(f"Saved final checkpoint to '{PATH}'")
 
     dist.destroy_process_group()
@@ -366,6 +413,13 @@ if __name__ == '__main__':
                               '--ckpt <name>_<K>.pth --start_step K; the lr schedule, step counter, '
                               'checkpoint names, TensorBoard steps and data order resume at K '
                               '(only the Adam moments start fresh)')
+    parser.add_argument('--resume', default=None,
+                         help='continue a run exactly from checkpoints/<name>_<K>.pth and its '
+                              '<name>_<K>.state: every other argument is restored from the state '
+                              'file (any given on the command line are ignored), plus the '
+                              'optimizer, lr schedule and rng')
+    parser.add_argument('--save_freq', type=int, default=10000,
+                         help='save a checkpoint (+ .state for --resume) every this many steps')
     parser.add_argument('--datasets', nargs='+', help='lists of datasets for training')
     parser.add_argument('--datapath', default='datasets/TartanAir', help="path to dataset directory")
     parser.add_argument('--gpus', type=int, default=None, help='number of GPUs to use (default: all available)')
@@ -415,6 +469,33 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    if args.resume is not None:
+        if not os.path.isfile(state_path(args.resume)):
+            logger.error(f"--resume: no training state '{state_path(args.resume)}' next to "
+                         f"'{args.resume}' (checkpoints saved before --resume existed have "
+                         f"none; use --ckpt + --start_step for those)")
+            raise SystemExit(1)
+        state = torch.load(state_path(args.resume), map_location='cpu', weights_only=False)
+        ignored = [a.dest for a in parser._actions
+                   if a.dest not in ('help', 'resume') and getattr(args, a.dest) != a.default]
+        if ignored:
+            logger.warning(f"--resume restores the original run's arguments; ignoring "
+                           f"command-line {ignored}")
+        # the saved args hold the resolved --steps; drop it so --epochs recomputes it and a
+        # changed dataset shows up as a mismatch against the saved schedule
+        saved = dict(state['args'])
+        if saved.get('epochs') is not None:
+            saved['steps'] = parser.get_default('steps')
+        args = argparse.Namespace(**{**saved, 'resume': args.resume, 'ckpt': args.resume,
+                                     'start_step': state['total_steps']})
+        logger.info(f"--resume: continuing '{args.name}' from step {args.start_step}")
+        del state
+
+    if args.scenes_gt_free is not None and args.save_freq % 2 != 0:
+        logger.error(f"--save_freq={args.save_freq} must be even in semi-supervised mode, "
+                     f"or its checkpoints land mid labeled/gt-free pair and can't be continued")
+        raise SystemExit(1)
+
     if args.scenes_gt_free is not None and args.w4 <= 0:
         logger.error("--scenes_gt_free requires --w4 > 0: the gt-free steps train "
                      "with the consistency loss only, so w4=0 would make them no-ops.")
@@ -462,7 +543,7 @@ if __name__ == '__main__':
     if args.start_step > 0:
         clobbered = [f for f in existing if int(ckpt_re.fullmatch(f).group(1)) > args.start_step]
         if clobbered:
-            logger.error(f"--start_step={args.start_step} under --name '{args.name}' would "
+            logger.error(f"continuing from step {args.start_step} under --name '{args.name}' would "
                          f"overwrite later checkpoints {clobbered}; continue from the latest "
                          f"one or pick a new --name.")
             raise SystemExit(1)
