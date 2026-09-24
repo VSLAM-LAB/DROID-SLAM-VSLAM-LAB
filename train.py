@@ -483,7 +483,10 @@ if __name__ == '__main__':
                            f"command-line {ignored}")
         # the saved args hold the resolved --steps; drop it so --epochs recomputes it and a
         # changed dataset shows up as a mismatch against the saved schedule
-        saved = dict(state['args'])
+        # arguments added after the state file was written take their defaults, so
+        # older runs stay resumable with newer code
+        saved = {**{a.dest: a.default for a in parser._actions if a.dest != 'help'},
+                 **state['args']}
         if saved.get('epochs') is not None:
             saved['steps'] = parser.get_default('steps')
         args = argparse.Namespace(**{**saved, 'resume': args.resume, 'ckpt': args.resume,
