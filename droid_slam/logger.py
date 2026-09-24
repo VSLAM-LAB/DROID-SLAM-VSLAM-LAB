@@ -7,8 +7,9 @@ from loguru import logger
 SUM_FREQ = 100
 
 class Logger:
-    def __init__(self, name, scheduler):
-        self.total_steps = 0
+    def __init__(self, name, scheduler, start_step=0):
+        self.total_steps = start_step
+        self.start_step = start_step
         self.running_loss = {}
         self.running_count = {}
         self.writer = None
@@ -17,7 +18,10 @@ class Logger:
 
     def _print_training_status(self):
         if self.writer is None:
-            self.writer = SummaryWriter('runs/%s' % self.name)
+            # when continuing a run, purge_step hides events the previous job logged
+            # past start_step (it ran on after its last checkpoint before being killed)
+            self.writer = SummaryWriter('runs/%s' % self.name,
+                                        purge_step=self.start_step if self.start_step > 0 else None)
             logger.info(f"Tracking metrics: {[k for k in self.running_loss]}")
 
         lr = self.scheduler.get_lr().pop()

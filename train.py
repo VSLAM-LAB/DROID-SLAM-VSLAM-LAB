@@ -4,6 +4,7 @@ sys.path.append('droid_slam')
 import re
 import socket
 import time
+import warnings
 from datetime import timedelta
 from loguru import logger
 import cv2
@@ -44,6 +45,20 @@ def setup_ddp(gpu, args):
                 f"host={socket.gethostname()} gpu={gpu} ({torch.cuda.get_device_name(gpu)}) "
                 f"backend={dist.get_backend()}")
 
+class ResumableDistributedSampler(torch.utils.data.distributed.DistributedSampler):
+    """ DistributedSampler that can start partway through an epoch: the next pass
+    drops its first `skip` indices, without loading them (used by --start_step) """
+
+    def __init__(self, *args, **kwargs):
+        super(ResumableDistributedSampler, self).__init__(*args, **kwargs)
+        self.skip = 0
+
+    def __iter__(self):
+        indices = list(super(ResumableDistributedSampler, self).__iter__())
+        skip, self.skip = self.skip, 0
+        return iter(indices[skip:])
+
+
 def show_image(image):
     image = image.permute(1, 2, 0).cpu().numpy()
     cv2.imshow('image', image / 255.0)
@@ -54,7 +69,14 @@ def train(gpu, args):
 
     # coordinate multiple GPUs
     setup_ddp(gpu, args)
-    rng = np.random.default_rng(12345)
+    # same seed on every rank: the graph / restart coin flips must agree across ranks.
+    # When continuing a run, draw a fresh (still rank-synchronized) stream instead of
+    # replaying the step-0 sequence
+    if args.start_step > 0:
+        rng = np.random.default_rng([12345, args.start_step])
+        torch.manual_seed(args.start_step)
+    else:
+        rng = np.random.default_rng(12345)
 
     N = args.n_frames
     model = DroidNet()
@@ -88,18 +110,27 @@ def train(gpu, args):
     else:
         db = dataset_factory(args.datasets, scenes_gt=args.scenes_gt, **dataset_kwargs)
 
-    train_sampler = torch.utils.data.distributed.DistributedSampler(
+    train_sampler = ResumableDistributedSampler(
         db, shuffle=True, num_replicas=args.world_size, rank=gpu)
 
     train_loader = DataLoader(db, batch_size=args.batch, sampler=train_sampler, num_workers=2)
 
+    # batches of each loader already consumed before start_step: in semi mode every
+    # labeled step is followed by one gt-free step, so each got half of them
+    if semi and args.start_step % 2 != 0:
+        logger.error(f"--start_step={args.start_step} must be even in semi-supervised mode "
+                     f"(labeled and gt-free steps alternate; checkpoints land on even steps)")
+        raise SystemExit(1)
+    batches_done = args.start_step // 2 if semi else args.start_step
+
     if semi:
-        sampler_u = torch.utils.data.distributed.DistributedSampler(
+        sampler_u = ResumableDistributedSampler(
             db_u, shuffle=True, num_replicas=args.world_size, rank=gpu)
         loader_u = DataLoader(db_u, batch_size=args.batch, sampler=sampler_u, num_workers=2)
 
         def _cycle_unlabeled():
-            epoch_u = 0
+            epoch_u, skip_u = divmod(batches_done, len(loader_u))
+            sampler_u.skip = skip_u * args.batch
             while True:
                 sampler_u.set_epoch(epoch_u)
                 epoch_u += 1
@@ -120,13 +151,29 @@ def train(gpu, args):
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer,
         args.lr, args.steps, pct_start=0.01, cycle_momentum=False)
 
-    train_logger = Logger(args.name, scheduler)
+    if args.start_step > 0:
+        if args.start_step >= args.steps:
+            logger.error(f"--start_step={args.start_step} is not below the run's total "
+                         f"steps={args.steps}; nothing left to train")
+            raise SystemExit(1)
+        # fast-forward the lr schedule to where the original run stopped (no new warmup)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')  # "scheduler.step() before optimizer.step()"
+            for _ in range(args.start_step):
+                scheduler.step()
+        logger.info(f"[rank {gpu}] --start_step={args.start_step}: lr schedule fast-forwarded "
+                    f"to lr={scheduler.get_last_lr()[0]:.7f}, data order skipped "
+                    f"{batches_done} batches per loader")
+
+    train_logger = Logger(args.name, scheduler, start_step=args.start_step)
     should_keep_training = True
-    total_steps = 0
-    epoch = 0
+    total_steps = args.start_step
+    epoch, skip = divmod(batches_done, len(train_loader))
+    train_sampler.skip = skip * args.batch
 
     train_start_time = time.time()
     avg_step_time = 0.0
+    steps_this_run = 0
 
     logger.info("=" * 60)
     logger.info(f"[train] start train loop")
@@ -137,16 +184,17 @@ def train(gpu, args):
 
     def finish_step(metrics, step_start_time):
         """ shared per-optimizer-step bookkeeping: clip, step, schedule, log, checkpoint """
-        nonlocal total_steps, avg_step_time, should_keep_training
+        nonlocal total_steps, avg_step_time, steps_this_run, should_keep_training
 
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
         optimizer.step()
         scheduler.step()
 
         total_steps += 1
+        steps_this_run += 1
 
         step_time = time.time() - step_start_time
-        avg_step_time += (step_time - avg_step_time) / total_steps
+        avg_step_time += (step_time - avg_step_time) / steps_this_run
 
         if gpu == 0:
             train_logger.push(metrics)
@@ -312,6 +360,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--name', default='bla', help='name your experiment')
     parser.add_argument('--ckpt', help='checkpoint to restore')
+    parser.add_argument('--start_step', type=int, default=0,
+                         help='continue a killed run from its --ckpt saved at this step: rerun the '
+                              'original command (same --epochs/--steps, --lr, datasets) plus '
+                              '--ckpt <name>_<K>.pth --start_step K; the lr schedule, step counter, '
+                              'checkpoint names, TensorBoard steps and data order resume at K '
+                              '(only the Adam moments start fresh)')
     parser.add_argument('--datasets', nargs='+', help='lists of datasets for training')
     parser.add_argument('--datapath', default='datasets/TartanAir', help="path to dataset directory")
     parser.add_argument('--gpus', type=int, default=None, help='number of GPUs to use (default: all available)')
@@ -391,14 +445,31 @@ if __name__ == '__main__':
     if not os.path.isdir('checkpoints'):
         os.mkdir('checkpoints')
 
-    # refuse to clobber a previous run: checkpoints are named <name>_<step>.pth and
-    # the step counter starts at 0, so reusing a name silently overwrites its files
+    if args.start_step < 0:
+        logger.error(f"--start_step must be >= 0, got {args.start_step}")
+        raise SystemExit(1)
+    if args.start_step > 0 and args.ckpt is None:
+        logger.error("--start_step needs --ckpt: the weights saved at that step")
+        raise SystemExit(1)
+
+    # refuse to clobber a previous run: checkpoints are named <name>_<step>.pth, so a
+    # fresh run under a used name would overwrite its files. Continuing with
+    # --start_step K only writes steps > K, so it may reuse the name as long as no
+    # checkpoint past K exists (that would mean continuing from an older point)
     ckpt_re = re.compile(re.escape(args.name) + r'_(\d+)\.pth')
     existing = sorted(f for f in os.listdir('checkpoints') if ckpt_re.fullmatch(f))
-    if existing or os.path.isdir(os.path.join('runs', args.name)):
+    runs_exists = os.path.isdir(os.path.join('runs', args.name))
+    if args.start_step > 0:
+        clobbered = [f for f in existing if int(ckpt_re.fullmatch(f).group(1)) > args.start_step]
+        if clobbered:
+            logger.error(f"--start_step={args.start_step} under --name '{args.name}' would "
+                         f"overwrite later checkpoints {clobbered}; continue from the latest "
+                         f"one or pick a new --name.")
+            raise SystemExit(1)
+    elif existing or runs_exists:
         logger.error(f"--name '{args.name}' is already used (checkpoints: {existing or 'none'}, "
-                     f"runs/{args.name} exists: {os.path.isdir(os.path.join('runs', args.name))}); "
-                     f"pick a new --name so nothing gets overwritten.")
+                     f"runs/{args.name} exists: {runs_exists}); pick a new --name so nothing "
+                     f"gets overwritten, or pass --start_step to continue that run.")
         raise SystemExit(1)
 
     os.environ['MASTER_ADDR'] = 'localhost'
