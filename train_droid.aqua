@@ -5,6 +5,7 @@
 #PBS -m abe
 #PBS -M alejandro.fontan@qut.edu.au
 #PBS -j oe
+#PBS -P LKATIA2156
 
 cd ~/VSLAM-LAB
 #pixi run synch-gt eth
@@ -22,14 +23,16 @@ export TQDM_DISABLE=1
 
 # 24/09/2026: fresh start the first time, then --resume from the latest .state after
 # each 48 h kill (same script for every job in the chain)
-NAME=tartanair-eth_semi_w4-05
+#NAME=tartanair-eth_semi_w4-05
+# 28/09/2026: consLoss_joint branch
+NAME=tartanair-eth_semi_w4-05_consLoss_joint
 last=$(ls checkpoints/${NAME}_*.state 2>/dev/null | sort | tail -1)
 echo "[$(date)] start (resume from: ${last:-none})"
 
 if [ -n "$last" ]; then
     pixi run -e droidslam-dev python train.py --resume "${last%.state}.pth"
 else
-    pixi run -e droidslam-dev python train.py --name $NAME --epochs 2 --lr 0.00002 --wd 0 --w4 0.5 --con_ramp 2000 \
+    pixi run -e droidslam-dev python train.py --name $NAME --joint --epochs 2 --lr 0.00002 --wd 0 --w4 0.5 --con_ramp 2000 \
         --save_freq 2000 --scenes_gt tartanair-train.yaml --scenes_gt_free eth.yaml \
         --datapath ../../../VSLAM-LAB-Benchmark --ckpt droid.pth
 fi
