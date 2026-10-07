@@ -10,10 +10,8 @@ torch_library_dirs = library_paths()
 conda_prefix = os.environ.get("PREFIX", os.environ.get("CONDA_PREFIX", ""))
 eigen_path = osp.join(conda_prefix, 'include', 'eigen3')
                       
+# Package metadata and console scripts live in pyproject.toml; setup.py only declares packages and the CUDA extension.
 setup(
-    name='vslamlab_droidslam',
-    version='0.1',
-    description='DROID-SLAM',
     package_data={
         'droid_slam.configs': ['*.yaml'], 
     },
@@ -22,13 +20,6 @@ setup(
     packages=find_packages(where='.'),
     package_dir={
         'droid_slam': 'droid_slam',
-    },
-    entry_points={
-        'console_scripts': [
-            'vslamlab_droidslam_mono = vslamlab_droidslam_mono:main',
-            'vslamlab_droidslam_rgbd = vslamlab_droidslam_rgbd:main',
-            'vslamlab_droidslam_stereo = vslamlab_droidslam_stereo:main',
-        ]
     },
     ext_modules=[
         CUDAExtension(
@@ -46,15 +37,10 @@ setup(
             ],
             extra_compile_args={
                 'cxx': ['-O3', '-D_GLIBCXX_USE_CXX11_ABI=1'],
+                # GPU targets come from TORCH_CUDA_ARCH_LIST (defaults to the build machine's GPU)
                 'nvcc': [
                     '-O3',
                     '-D_GLIBCXX_USE_CXX11_ABI=1',
-                    '-gencode=arch=compute_60,code=sm_60',
-                    '-gencode=arch=compute_61,code=sm_61',
-                    '-gencode=arch=compute_70,code=sm_70',
-                    '-gencode=arch=compute_75,code=sm_75',
-                    '-gencode=arch=compute_80,code=sm_80',
-                    '-gencode=arch=compute_86,code=sm_86',
                 ]
             }
         ),

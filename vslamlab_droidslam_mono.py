@@ -1,6 +1,6 @@
 from pathlib import Path
 from tqdm import tqdm
-import pkg_resources
+import importlib.resources
 import pandas as pd
 import numpy as np
 import argparse
@@ -105,10 +105,8 @@ def main():
     args.upsample = bool(int(args.upsample))
 
     settings_path = args.settings_yaml
-    if not os.path.exists(settings_path):
-        settings_path = pkg_resources.resource_filename(
-            'droid_slam.configs', 'vslamlab_droidslam-dev_settings.yaml'
-        )
+    if not settings_path or not os.path.exists(settings_path):
+        settings_path = importlib.resources.files('droid_slam.configs') / 'vslamlab_droidslam-dev_settings.yaml'
 
     with open(settings_path, 'r') as f:
         settings = yaml.safe_load(f)

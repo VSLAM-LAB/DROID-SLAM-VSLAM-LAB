@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77", "torch"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "droidslam"
+version = "1.0"
+description = "Deep Visual SLAM for Monocular, Stereo, and RGB-D Cameras"
+readme = "README.md"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [{ name = "Zachary Teed" }, { name = "Jia Deng" }]
+requires-python = ">=3.9"
+
+[project.scripts]
+vslamlab_droidslam_mono = "vslamlab_droidslam_mono:main"
+vslamlab_droidslam_rgbd = "vslamlab_droidslam_rgbd:main"
+vslamlab_droidslam_stereo = "vslamlab_droidslam_stereo:main"
+
+[project.urls]
+Homepage = "https://github.com/princeton-vl/DROID-SLAM"
+Repository = "https://github.com/VSLAM-LAB/droidslam"
