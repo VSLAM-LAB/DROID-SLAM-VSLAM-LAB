@@ -81,6 +81,10 @@ tensorboard = "*"
 # abseil/protobuf and segfault. Keep the dependencies below in sync with the [package] ones.
 [tasks]
 install = "pip install --no-build-isolation --no-deps -e ."
+execute-mono = "vslamlab_droidslam_mono"
+execute-rgbd = "vslamlab_droidslam_rgbd"
+execute-stereo = "vslamlab_droidslam_stereo"
+train = "python train.py --steps 250000 --datasets vslamlab --datapath ../../../VSLAM-LAB-Benchmark --ckpt droid.pth"  # clone in VSLAM-LAB/Baselines
 test = "python -I -c 'import droid_backends, lietorch; from droid_slam.droid import Droid; print(Droid)' && vslamlab_droidslam_mono --help && vslamlab_droidslam_rgbd --help && vslamlab_droidslam_stereo --help"
 
 [dependencies]
