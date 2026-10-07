@@ -23,7 +23,7 @@ python = ["3.11.*"]
 #   pixi upload prefix --channel vslamlab/vslamlab output/*.conda
 [package]
 name = "droidslam"
-version = "1.0"
+version = "1.1"
 description = "Deep Visual SLAM for Monocular, Stereo, and RGB-D Cameras"
 authors = ["Zachary Teed", "Jia Deng"]
 license = "BSD-3-Clause"
