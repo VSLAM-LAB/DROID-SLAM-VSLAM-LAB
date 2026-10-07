@@ -158,3 +158,6 @@ figures/*.pdf
 # VSLAM-LAB
 install_droidslam-dev.txt
 archive/
+# pixi
+.pixi/
+output/

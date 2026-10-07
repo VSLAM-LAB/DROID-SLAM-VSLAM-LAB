@@ -1,0 +1,118 @@
+# Conda package definition for droidslam ([package], built by pixi-build from this repo for releases), plus a
+# development environment ([workspace]) that compiles this repo in place with `pixi run install`.
+# Release builds take their CUDA variants from variants.yaml.
+[workspace]
+authors = ["vslamlab <vslamlab@gmail.com>"]
+channels = ["https://prefix.dev/conda-forge", "https://prefix.dev/vslamlab/vslamlab"]
+name = "droidslam"
+platforms = [
+    { name = "linux-64-cuda126", platform = "linux-64", cuda = "12.6" },
+    { name = "linux-64-cuda129", platform = "linux-64", cuda = "12.9" },
+]
+version = "0.1.0"
+preview = ["pixi-build"]
+build-variants-files = ["variants.yaml"]  # CUDA variants (needs zip_keys, which the inline table lacks)
+
+# One package build per value (combined with the CUDA variants in variants.yaml)
+[workspace.build-variants]
+python = ["3.11.*"]
+
+########################################################################################################################
+# Package. Release: from a clean checkout of a tagged commit,
+#   pixi publish --clean --target-dir output
+#   pixi upload prefix --channel vslamlab/vslamlab output/*.conda
+[package]
+name = "droidslam"
+version = "1.0"
+description = "Deep Visual SLAM for Monocular, Stereo, and RGB-D Cameras"
+authors = ["Zachary Teed", "Jia Deng"]
+license = "BSD-3-Clause"
+homepage = "https://github.com/princeton-vl/DROID-SLAM"
+repository = "https://github.com/VSLAM-LAB/droidslam"
+
+[package.build]
+backend = { name = "pixi-build-python", version = "0.*" }
+
+[package.build.config]
+noarch = false                    # compiled CUDA extension
+compilers = ["c", "cxx", "cuda"]
+installer = "pip"
+env = { TORCH_CUDA_ARCH_LIST = "7.0;7.5;8.0;8.6;8.9;9.0+PTX" }  # else nvcc targets only the build machine's GPU
+
+[package.build-dependencies]
+ninja = "*"
+
+[package.host-dependencies]
+python = "*"
+pip = "*"
+setuptools = "*"
+pytorch-gpu = "2.7.*"   # keep equal to the run pin below
+cuda-version = "*"      # set per build by cuda_version in variants.yaml
+cuda-cudart-dev = "*"   # the extension links libcudart only
+libcublas-dev = "*"     # headers pulled in by ATen/cuda/CUDAContext.h
+libcusparse-dev = "*"
+libcusolver-dev = "*"
+eigen = "*"             # setup.py includes $PREFIX/include/eigen3
+
+[package.run-dependencies]
+python = "*"
+pytorch-gpu = "2.7.*"   # the extension is compiled against this torch ABI
+lietorch = "1.0.1.*"
+torch-scatter = "*"
+torchvision = "*"
+tqdm = "*"
+open3d = "*"
+scipy = "*"
+opencv = "*"
+suitesparse = "*"
+matplotlib = "*"
+pyyaml = "*"
+huggingface_hub = "*"
+pandas = "*"
+moderngl = "*"
+moderngl-window = "3.1.1"
+tensorboard = "*"
+
+########################################################################################################################
+# Workspace: development environment (CUDA 12.9). `pixi run install` compiles droid_backends in place against this
+# environment and installs the repo in editable mode; Python edits apply immediately, after editing src/*.cu or
+# *.cpp run `pixi run install` again. Not a pixi-build path dependency on purpose: an editable pixi-build install
+# links droid_backends.so against pixi's hidden build environment, which can load a second copy of libtorch's
+# abseil/protobuf and segfault. Keep the dependencies below in sync with the [package] ones.
+[tasks]
+install = "pip install --no-build-isolation --no-deps -e ."
+test = "python -I -c 'import droid_backends, lietorch; from droid_slam.droid import Droid; print(Droid)' && vslamlab_droidslam_mono --help && vslamlab_droidslam_rgbd --help && vslamlab_droidslam_stereo --help"
+
+[dependencies]
+# build
+c-compiler = "*"
+cxx-compiler = "*"
+cuda-compiler = "*"
+ninja = "*"
+# host
+python = "3.11.*"
+pip = "*"
+setuptools = "*"
+pytorch-gpu = "2.7.*"
+cuda-version = "12.9.*"
+cuda-cudart-dev = "*"
+libcublas-dev = "*"
+libcusparse-dev = "*"
+libcusolver-dev = "*"
+eigen = "*"
+# run
+lietorch = "1.0.1.*"
+torch-scatter = "*"
+torchvision = "*"
+tqdm = "*"
+open3d = "*"
+scipy = "*"
+opencv = "*"
+suitesparse = "*"
+matplotlib = "*"
+pyyaml = "*"
+huggingface_hub = "*"
+pandas = "*"
+moderngl = "*"
+moderngl-window = "3.1.1"
+tensorboard = "*"
