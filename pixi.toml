@@ -76,9 +76,10 @@ tensorboard = "*"
 ########################################################################################################################
 # Workspace: development environment (CUDA 12.9). `pixi run install` compiles droid_backends in place against this
 # environment and installs the repo in editable mode; Python edits apply immediately, after editing src/*.cu or
-# *.cpp run `pixi run install` again. Not a pixi-build path dependency on purpose: an editable pixi-build install
+# *.cpp run `pixi run install` again. The environment gets the [package] build/host/run dependencies through [dev]
+# (droidslam itself is not built). Not a pixi-build path dependency on purpose: an editable pixi-build install
 # links droid_backends.so against pixi's hidden build environment, which can load a second copy of libtorch's
-# abseil/protobuf and segfault. Keep the dependencies below in sync with the [package] ones.
+# abseil/protobuf and segfault.
 [tasks]
 install = "pip install --no-build-isolation --no-deps -e ."
 execute-mono = "vslamlab_droidslam_mono"
@@ -87,36 +88,8 @@ execute-stereo = "vslamlab_droidslam_stereo"
 train = "python train.py --steps 250000 --datasets vslamlab --datapath ../../../VSLAM-LAB-Benchmark --ckpt droid.pth"  # clone in VSLAM-LAB/Baselines
 test = "python -I -c 'import droid_backends, lietorch; from droid_slam.droid import Droid; print(Droid)' && vslamlab_droidslam_mono --help && vslamlab_droidslam_rgbd --help && vslamlab_droidslam_stereo --help"
 
+[dev]
+droidslam = { path = "." }  # installs the [package] build/host/run dependencies, not droidslam itself
+
 [dependencies]
-# build
-c-compiler = "*"
-cxx-compiler = "*"
-cuda-compiler = "*"
-ninja = "*"
-# host
-python = "3.11.*"
-pip = "*"
-setuptools = "*"
-pytorch-gpu = "2.7.*"
 cuda-version = "12.9.*"
-cuda-cudart-dev = "*"
-libcublas-dev = "*"
-libcusparse-dev = "*"
-libcusolver-dev = "*"
-eigen = "*"
-# run
-lietorch = "1.0.1.*"
-torch-scatter = "*"
-torchvision = "*"
-tqdm = "*"
-open3d = "*"
-scipy = "*"
-opencv = "*"
-suitesparse = "*"
-matplotlib = "*"
-pyyaml = "*"
-huggingface_hub = "*"
-pandas = "*"
-moderngl = "*"
-moderngl-window = "==3.1.1"
-tensorboard = "*"
