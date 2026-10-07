@@ -22,6 +22,15 @@ def show_image(image):
     cv2.imshow('image', image / 255.0)
     cv2.waitKey(1)
 
+def add_gaussian_noise(image: np.ndarray, noise_std: float, rng: np.random.Generator) -> np.ndarray:
+    """ Add zero-mean gaussian noise with std `noise_std` (in 0-255 intensity units) to a uint8 image,
+    then clip back to the valid [0, 255] range. A noise_std <= 0 returns the image unchanged. """
+    if noise_std <= 0.0:
+        return image
+    noise = rng.normal(0.0, noise_std, size=image.shape).astype(np.float32)
+    noisy = image.astype(np.float32) + noise
+    return np.clip(np.rint(noisy), 0.0, 255.0).astype(np.uint8)  # rint: astype alone truncates toward zero and would bias small noise
+
 def load_calibration(calibration_yaml: Path, cam_name: str):
     with open(calibration_yaml, 'r') as file:
         data = yaml.safe_load(file)
@@ -54,8 +63,10 @@ def load_calibration(calibration_yaml: Path, cam_name: str):
     return K, dist, cam['image_dimension'][0], cam['image_dimension'][1]
 
 def image_stream(sequence_path: Path, rgb_csv: Path, calibration_yaml: Path, 
-                 cam_name: str = "rgb_0", target_pixels: int = 384*512):
-    """ image generator """
+                 cam_name: str = "rgb_0", target_pixels: int = 384*512,
+                 noise_std: float = 0.0, noise_seed: int = 0):
+    """ image generator. `noise_std` > 0 adds gaussian noise to every frame; the noise is seeded
+    per frame from `noise_seed` so the tracking pass and the terminate() pass see identical images. """
     global timestamps
     K, dist, w0, h0 = load_calibration(calibration_yaml, cam_name)
 
@@ -76,6 +87,7 @@ def image_stream(sequence_path: Path, rgb_csv: Path, calibration_yaml: Path,
         impath = sequence_path / imrel
         image = cv2.imread(impath)
         image = cv2.remap(image, mapx, mapy, interpolation=cv2.INTER_LINEAR)
+        image = add_gaussian_noise(image, noise_std, np.random.default_rng([noise_seed, t]))
         
         h, w, _ = image.shape
         image = image[:h-h%8, :w-w%8]
@@ -97,6 +109,8 @@ def main():
     parser.add_argument("--verbose", type=str, help="verbose")
     parser.add_argument("--upsample", action="store_true")
     parser.add_argument("--weights", type=Path, default=None)
+    parser.add_argument("--noise_std", type=float, default=0.0,
+                        help="std of zero-mean gaussian noise added to the images, in 0-255 intensity units (0 = off)")
 
     args, _ = parser.parse_known_args()
 
@@ -133,11 +147,15 @@ def main():
     args.stereo = False
     args.depth = False
     cam_name = str(S.get('cam_mono', "rgb_0"))
+    noise_seed = int(args.exp_it)  # different noise per run, identical between the two passes of one run
+    if args.noise_std > 0.0:
+        print(f"Adding gaussian noise to images: std = {args.noise_std} (seed = {noise_seed})")
 
     torch.multiprocessing.set_start_method('spawn')
 
     droid = None
-    for (t, image, intrinsics) in tqdm(image_stream(args.sequence_path, args.rgb_csv, args.calibration_yaml, cam_name = cam_name)):
+    for (t, image, intrinsics) in tqdm(image_stream(args.sequence_path, args.rgb_csv, args.calibration_yaml, cam_name = cam_name,
+                                                    noise_std = args.noise_std, noise_seed = noise_seed)):
         if t < args.t0:
             continue
 
@@ -151,7 +169,8 @@ def main():
 
         droid.track(t, image, intrinsics=intrinsics)
 
-    traj_est = droid.terminate(image_stream(args.sequence_path, args.rgb_csv, args.calibration_yaml, cam_name))
+    traj_est = droid.terminate(image_stream(args.sequence_path, args.rgb_csv, args.calibration_yaml, cam_name,
+                                            noise_std = args.noise_std, noise_seed = noise_seed))
     
     keyframe_csv = args.exp_folder / f"{args.exp_it.zfill(5)}_KeyFrameTrajectory.csv"
     with open(keyframe_csv, "w", newline="") as f:
